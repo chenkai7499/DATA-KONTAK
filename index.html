@@ -140,6 +140,13 @@
         .filter(Boolean);
     }
 
+    function looksLikePhone(token) {
+      const trimmed = token.trim();
+      const digits = trimmed.replace(/\D/g, "");
+      if (!digits) return false;
+      return trimmed.startsWith("0") || trimmed.startsWith("+") || digits.length >= 8;
+    }
+
     function searchMany() {
       const tokens = tokenizeInput(searchInput.value);
       if (!tokens.length) {
@@ -153,9 +160,11 @@
       const phoneTokens = [];
 
       for (const token of tokens) {
-        const normalizedPhone = token.replace(/\D/g, "");
         if (existingIdSet.has(token)) idSet.add(token);
-        else if (normalizedPhone) phoneTokens.push(normalizedPhone);
+        if (looksLikePhone(token)) {
+          const normalizedPhone = token.replace(/\D/g, "");
+          if (normalizedPhone) phoneTokens.push(normalizedPhone);
+        }
       }
 
       const seen = new Set();
