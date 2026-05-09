@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pencarian Kontak Spreadsheet</title>
+  <style>
+    :root { color-scheme: light; }
+    body { font-family: Arial, sans-serif; margin: 24px; background: #f6f7fb; color: #111; }
+    .card { max-width: 820px; margin: 0 auto; background: #fff; border: 1px solid #e6e8ef; border-radius: 10px; padding: 20px; }
+    h1 { margin: 0 0 12px; font-size: 1.35rem; }
+    .muted { color: #555; font-size: 0.92rem; margin-bottom: 12px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    input { flex: 1 1 260px; padding: 10px; border: 1px solid #cfd4e3; border-radius: 8px; }
+    button { padding: 10px 14px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; cursor: pointer; }
+    button:disabled { background: #94a3b8; cursor: wait; }
+    table { width: 100%; border-collapse: collapse; margin-top: 14px; }
+    th, td { border-bottom: 1px solid #eceff7; padding: 10px 8px; text-align: left; font-size: 0.95rem; }
+    th { background: #f8f9fd; }
+    .status { margin-top: 10px; font-size: 0.92rem; color: #444; }
+    .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #eef2ff; color: #1e3a8a; font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Pencarian Nomor & Kode Kontak</h1>
+    <p class="muted">Cari berdasarkan <strong>nomor kontak</strong> dari sheet <span class="chip">DB1</span> dan <span class="chip">DB2</span>.</p>
+
+    <div class="row">
+      <input id="searchInput" type="text" placeholder="Masukkan nomor kontak (contoh: 08123456789)" autocomplete="off" />
+      <button id="searchBtn">Cari</button>
+    </div>
+
+    <p id="status" class="status">Siap digunakan.</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Nomor Kontak</th>
+          <th>Kode Kontak</th>
+          <th>Asal Sheet</th>
+        </tr>
+      </thead>
+      <tbody id="resultBody">
+        <tr><td colspan="4">Belum ada pencarian.</td></tr>
+      </tbody>
+    </table>
+  </main>
+
+  <script>
+    // Ganti dengan ID Google Spreadsheet Anda.
+    const SPREADSHEET_ID = "GANTI_DENGAN_SPREADSHEET_ID";
+    const SHEETS = ["DB1", "DB2"];
+
+    const statusEl = document.getElementById("status");
+    const resultBody = document.getElementById("resultBody");
+    const searchInput = document.getElementById("searchInput");
+    const searchBtn = document.getElementById("searchBtn");
+
+    let cachedRows = [];
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function toCsvUrl(sheetName) {
+      return `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+    }
+
+    function parseCsvLine(line) {
+      const out = [];
+      let cur = "";
+      let quoted = false;
+
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (quoted && line[i + 1] === '"') {
+            cur += '"';
+            i++;
+          } else {
+            quoted = !quoted;
+          }
+        } else if (ch === "," && !quoted) {
+          out.push(cur);
+          cur = "";
+        } else {
+          cur += ch;
+        }
+      }
+      out.push(cur);
+      return out;
+    }
+
+    function csvToRows(csv) {
+      return csv
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map(parseCsvLine);
+    }
+
+    async function loadData() {
+      if (SPREADSHEET_ID === "GANTI_DENGAN_SPREADSHEET_ID") {
+        throw new Error("Silakan isi SPREADSHEET_ID di file index.html terlebih dahulu.");
+      }
+
+      const all = await Promise.all(
+        SHEETS.map(async (sheetName) => {
+          const res = await fetch(toCsvUrl(sheetName));
+          if (!res.ok) throw new Error(`Gagal mengambil data dari ${sheetName}.`);
+          const csvText = await res.text();
+          const rows = csvToRows(csvText);
+
+          return rows
+            .filter((r, idx) => idx > 0 && r.length >= 3)
+            .map((r) => ({
+              id: (r[0] || "").trim(),
+              nomorKontak: (r[1] || "").trim(),
+              kodeKontak: (r[2] || "").trim(),
+              asalSheet: sheetName,
+            }));
+        })
+      );
+
+      return all.flat();
+    }
+
+    function renderRows(rows) {
+      if (!rows.length) {
+        resultBody.innerHTML = '<tr><td colspan="4">Data tidak ditemukan.</td></tr>';
+        return;
+      }
+
+      resultBody.innerHTML = rows
+        .map(
+          (r) =>
+            `<tr>
+              <td>${escapeHtml(r.id)}</td>
+              <td>${escapeHtml(r.nomorKontak)}</td>
+              <td>${escapeHtml(r.kodeKontak)}</td>
+              <td>${escapeHtml(r.asalSheet)}</td>
+            </tr>`
+        )
+        .join("");
+    }
+
+    function search() {
+      const query = searchInput.value.trim();
+      if (!query) {
+        statusEl.textContent = "Masukkan nomor kontak terlebih dahulu.";
+        renderRows([]);
+        return;
+      }
+
+      const normalized = query.replace(/\D/g, "");
+      const found = cachedRows.filter((r) => r.nomorKontak.replace(/\D/g, "").includes(normalized));
+      statusEl.textContent = `Ditemukan ${found.length} data untuk pencarian: ${query}`;
+      renderRows(found);
+    }
+
+    async function init() {
+      searchBtn.disabled = true;
+      statusEl.textContent = "Memuat data DB1 dan DB2...";
+      try {
+        cachedRows = await loadData();
+        statusEl.textContent = `Data siap. Total ${cachedRows.length} baris termuat.`;
+      } catch (err) {
+        statusEl.textContent = err.message;
+      } finally {
+        searchBtn.disabled = false;
+      }
+    }
+
+    searchBtn.addEventListener("click", search);
+    searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") search();
+    });
+
+    init();
+  </script>
+</body>
+</html>
