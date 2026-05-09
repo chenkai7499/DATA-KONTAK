@@ -5,31 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Pencarian Kontak Spreadsheet</title>
   <style>
+    :root { color-scheme: light; }
     body { font-family: Arial, sans-serif; margin: 24px; background: #f6f7fb; color: #111; }
-    .card { max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #e6e8ef; border-radius: 10px; padding: 20px; }
+    .card { max-width: 820px; margin: 0 auto; background: #fff; border: 1px solid #e6e8ef; border-radius: 10px; padding: 20px; }
     h1 { margin: 0 0 12px; font-size: 1.35rem; }
     .muted { color: #555; font-size: 0.92rem; margin-bottom: 12px; }
-    textarea { width: 100%; min-height: 180px; padding: 10px; border: 1px solid #cfd4e3; border-radius: 8px; resize: vertical; box-sizing: border-box; }
-    .actions { display: flex; gap: 8px; margin-top: 10px; }
-    button { padding: 10px 14px; border: 0; border-radius: 8px; cursor: pointer; }
-    #searchBtn { background: #2563eb; color: #fff; }
-    #clearBtn { background: #e5e7eb; color: #111; }
-    button:disabled { background: #94a3b8; color: #fff; cursor: wait; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    input { flex: 1 1 260px; padding: 10px; border: 1px solid #cfd4e3; border-radius: 8px; }
+    button { padding: 10px 14px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; cursor: pointer; }
+    button:disabled { background: #94a3b8; cursor: wait; }
     table { width: 100%; border-collapse: collapse; margin-top: 14px; }
     th, td { border-bottom: 1px solid #eceff7; padding: 10px 8px; text-align: left; font-size: 0.95rem; }
     th { background: #f8f9fd; }
     .status { margin-top: 10px; font-size: 0.92rem; color: #444; }
+    .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #eef2ff; color: #1e3a8a; font-size: 0.8rem; }
   </style>
 </head>
 <body>
   <main class="card">
-    <h1>Pencarian ID / Nomor Kontak (DB1 + DB2)</h1>
-    <p class="muted">Masukkan 1 atau banyak data (pisah baris). Sistem akan deteksi otomatis ID atau nomor kontak.</p>
+    <h1>Pencarian Nomor & Kode Kontak</h1>
+    <p class="muted">Cari berdasarkan <strong>nomor kontak</strong> dari sheet <span class="chip">DB1</span> dan <span class="chip">DB2</span>.</p>
 
-    <textarea id="searchInput" placeholder="Contoh:\n12345\n12346\n08123456789"></textarea>
-    <div class="actions">
+    <div class="row">
+      <input id="searchInput" type="text" placeholder="Masukkan nomor kontak (contoh: 08123456789)" autocomplete="off" />
       <button id="searchBtn">Cari</button>
-      <button id="clearBtn" type="button">Clear / Reset</button>
     </div>
 
     <p id="status" class="status">Siap digunakan.</p>
@@ -50,14 +49,14 @@
   </main>
 
   <script>
-    const SPREADSHEET_ID = "GANTI_DENGAN_SPREADSHEET_ID";
+    // Ganti dengan ID Google Spreadsheet Anda.
+    const SPREADSHEET_ID = "1g_NJprvmPIN2On5FfXvsim_Tu8S7dDg-0MpPYvPXnMA";
     const SHEETS = ["DB1", "DB2"];
 
     const statusEl = document.getElementById("status");
     const resultBody = document.getElementById("resultBody");
     const searchInput = document.getElementById("searchInput");
     const searchBtn = document.getElementById("searchBtn");
-    const clearBtn = document.getElementById("clearBtn");
 
     let cachedRows = [];
 
@@ -78,13 +77,19 @@
       const out = [];
       let cur = "";
       let quoted = false;
+
       for (let i = 0; i < line.length; i++) {
         const ch = line[i];
         if (ch === '"') {
-          if (quoted && line[i + 1] === '"') { cur += '"'; i++; }
-          else { quoted = !quoted; }
+          if (quoted && line[i + 1] === '"') {
+            cur += '"';
+            i++;
+          } else {
+            quoted = !quoted;
+          }
         } else if (ch === "," && !quoted) {
-          out.push(cur); cur = "";
+          out.push(cur);
+          cur = "";
         } else {
           cur += ch;
         }
@@ -94,18 +99,24 @@
     }
 
     function csvToRows(csv) {
-      return csv.split(/\r?\n/).filter(Boolean).map(parseCsvLine);
+      return csv
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map(parseCsvLine);
     }
 
     async function loadData() {
       if (SPREADSHEET_ID === "GANTI_DENGAN_SPREADSHEET_ID") {
         throw new Error("Silakan isi SPREADSHEET_ID di file index.html terlebih dahulu.");
       }
+
       const all = await Promise.all(
         SHEETS.map(async (sheetName) => {
           const res = await fetch(toCsvUrl(sheetName));
           if (!res.ok) throw new Error(`Gagal mengambil data dari ${sheetName}.`);
-          const rows = csvToRows(await res.text());
+          const csvText = await res.text();
+          const rows = csvToRows(csvText);
+
           return rows
             .filter((r, idx) => idx > 0 && r.length >= 3)
             .map((r) => ({
@@ -116,6 +127,7 @@
             }));
         })
       );
+
       return all.flat();
     }
 
@@ -124,69 +136,32 @@
         resultBody.innerHTML = '<tr><td colspan="4">Data tidak ditemukan.</td></tr>';
         return;
       }
-      resultBody.innerHTML = rows.map((r) => `
-        <tr>
-          <td>${escapeHtml(r.id)}</td>
-          <td>${escapeHtml(r.nomorKontak)}</td>
-          <td>${escapeHtml(r.kodeKontak)}</td>
-          <td>${escapeHtml(r.asalSheet)}</td>
-        </tr>`).join("");
+
+      resultBody.innerHTML = rows
+        .map(
+          (r) =>
+            `<tr>
+              <td>${escapeHtml(r.id)}</td>
+              <td>${escapeHtml(r.nomorKontak)}</td>
+              <td>${escapeHtml(r.kodeKontak)}</td>
+              <td>${escapeHtml(r.asalSheet)}</td>
+            </tr>`
+        )
+        .join("");
     }
 
-    function tokenizeInput(raw) {
-      return raw
-        .split(/\r?\n/)
-        .map((v) => v.trim())
-        .filter(Boolean);
-    }
-
-    function isPhoneToken(token) {
-      const digitCount = token.replace(/\D/g, "").length;
-      return token.startsWith("0") || digitCount >= 8;
-    }
-
-    function searchMany() {
-      const tokens = tokenizeInput(searchInput.value);
-      if (!tokens.length) {
-        statusEl.textContent = "Masukkan minimal 1 ID atau nomor kontak.";
+    function search() {
+      const query = searchInput.value.trim();
+      if (!query) {
+        statusEl.textContent = "Masukkan nomor kontak terlebih dahulu.";
         renderRows([]);
         return;
       }
 
-      const idSet = new Set();
-      const phoneSet = new Set();
-
-      for (const token of tokens) {
-        if (isPhoneToken(token)) phoneSet.add(token.replace(/\D/g, ""));
-        else idSet.add(token);
-      }
-
-      const seen = new Set();
-      const results = [];
-
-      for (const row of cachedRows) {
-        const idHit = idSet.has(row.id);
-        const rowPhone = row.nomorKontak.replace(/\D/g, "");
-        const phoneHit = phoneSet.has(rowPhone);
-
-        if (idHit || phoneHit) {
-          const key = `${row.asalSheet}::${row.id}::${row.nomorKontak}::${row.kodeKontak}`;
-          if (!seen.has(key)) {
-            seen.add(key);
-            results.push(row);
-          }
-        }
-      }
-
-      statusEl.textContent = `Input: ${tokens.length} | Hasil ditemukan: ${results.length}`;
-      renderRows(results);
-    }
-
-    function clearAll() {
-      searchInput.value = "";
-      statusEl.textContent = "Input dibersihkan.";
-      resultBody.innerHTML = '<tr><td colspan="4">Belum ada pencarian.</td></tr>';
-      searchInput.focus();
+      const normalized = query.replace(/\D/g, "");
+      const found = cachedRows.filter((r) => r.nomorKontak.replace(/\D/g, "").includes(normalized));
+      statusEl.textContent = `Ditemukan ${found.length} data untuk pencarian: ${query}`;
+      renderRows(found);
     }
 
     async function init() {
@@ -202,8 +177,10 @@
       }
     }
 
-    searchBtn.addEventListener("click", searchMany);
-    clearBtn.addEventListener("click", clearAll);
+    searchBtn.addEventListener("click", search);
+    searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") search();
+    });
 
     init();
   </script>
